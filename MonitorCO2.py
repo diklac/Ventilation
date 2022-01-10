@@ -19,8 +19,9 @@ DEF_COM_PORT = 'COM3'
 DEF_BAUD_RATE = 115200
 DEF_OUTPUT_FILE = 'sensor_output'
 TIME_FMT = '%Y%m%d_%H_%M_%S'
-USAGE_MSG = 'Usage: %s <read_serial | plot>\r\nFor read_serial, optional arguments: <com_port> <baud_rate> <output_file_name>'
+USAGE_MSG = 'Usage: %s <read_serial | plot>\r\nFor read_serial, optional arguments: <com_port> <baud_rate> <output_file_name> <num row dump>\r\nFor plot, optional argument: <file_name>'
 SERIAL_REGEX_PARSER = r'Temperature: ([0-9.]+)|Relative Humidity: ([0-9.]+)|CO2: ([0-9.]+)'
+DEF_ROWS_NUM_DUMP = 10
 
     
     
@@ -53,10 +54,6 @@ class SerialReader(Application):
         self.display_items = ['Temperature', 'CO2']
         self.log_items = ['Time', 'Temperature', 'CO2']
         self.units = {'Time' : None, 'Temperature' : 'deg C', 'CO2' : 'ppm'}
-        #self.display_items = {'Temperature' : 'd C', 'CO2' : 'ppm'}
-        #self.log_items = {'Time' : '', 'Temperature' : 'deg C', 'CO2' : 'ppm'}
-        
-        
 
     def parse_data(self, s, data_dict=None):
         '''
@@ -109,7 +106,7 @@ class SerialReader(Application):
             return False
                 
     
-    def Run(self, com_port=DEF_COM_PORT, baud_rate=DEF_BAUD_RATE, output_file_name=DEF_OUTPUT_FILE):
+    def Run(self, com_port=DEF_COM_PORT, baud_rate=DEF_BAUD_RATE, output_file_name=DEF_OUTPUT_FILE, rows_num_dump=DEF_ROWS_NUM_DUMP):
         
         # open file to write to
         output_file_name = self.GetFileName(output_file_name)
@@ -131,6 +128,7 @@ class SerialReader(Application):
         
         # loop on reading
         data_dict = {}
+        rows_counter = 0
         while not self.terminated:
             
             # parse data:
@@ -150,9 +148,14 @@ class SerialReader(Application):
                             
             # gather more lines
             line = ser.readline()
+            rows_counter += 1
             data_dict = self.parse_data(str(line, 'utf-8'), data_dict)
-                     
-        
+            
+            # if we collected enough rows, dump to file to mitigate lost data
+            if rows_counter >= rows_num_dump:
+                rows_counter = 0
+                output_file.flush()
+                       
         # cleanup
         ser.close()
         print('Finished reading from serial.')
@@ -198,11 +201,11 @@ class DataPlotter(object):
         
         # get data
         df = self.LoadData(data_file_name)
-        curve_names = [k for k in df.keys() if k != 'Time []']
+        curve_names = [k for k in df.keys() if k != 'Time']
         num_curves = len(curve_names)
         
         # parse time
-        time = pd.to_datetime(df['Time []'], format='%Y%m%d_%H:%M:%S')        
+        time = pd.to_datetime(df['Time'], format=TIME_FMT)        
         
         for ii in range(num_curves):
             
@@ -234,7 +237,7 @@ if __name__ == '__main__':
         # run to plot data
         elif purpose == 'plot':
             dp = DataPlotter()
-            dp.PlotFile()
+            dp.PlotFile(*sys.argv[2:])
             exit()
         else:
             print('Unknown purpose (first argument). Can be read_serial or plot.')
