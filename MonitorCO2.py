@@ -19,7 +19,8 @@ DEF_COM_PORT = 'COM3'
 DEF_BAUD_RATE = 115200
 DEF_OUTPUT_FILE = 'sensor_output'
 TIME_FMT = '%Y%m%d_%H_%M_%S'
-USAGE_MSG = 'Usage: %s <read_serial | plot>'
+USAGE_MSG = 'Usage: %s <read_serial | plot>\r\nFor read_serial, optional arguments: <com_port> <baud_rate> <output_file_name>'
+SERIAL_REGEX_PARSER = r'Temperature: ([0-9.]+)|Relative Humidity: ([0-9.]+)|CO2: ([0-9.]+)'
 
     
     
@@ -43,18 +44,27 @@ class Application(object):
         '''
         
 class SerialReader(Application):
+    '''
+    data_dict has keys: Time, Temperature, CO2
+    '''
     def __init__(self):
         super(SerialReader, self).__init__()
-        self.display_items = {'Temperature' : 'd C', 'CO2' : 'ppm'}
-        self.log_items = {'Time' : '', 'Temperature' : 'deg C', 'CO2' : 'ppm'}
+        self.serial_regex_parser = SERIAL_REGEX_PARSER
+        self.display_items = ['Temperature', 'CO2']
+        self.log_items = ['Time', 'Temperature', 'CO2']
+        self.units = {'Time' : None, 'Temperature' : 'deg C', 'CO2' : 'ppm'}
+        #self.display_items = {'Temperature' : 'd C', 'CO2' : 'ppm'}
+        #self.log_items = {'Time' : '', 'Temperature' : 'deg C', 'CO2' : 'ppm'}
         
         
 
     def parse_data(self, s, data_dict=None):
+        '''
+        build data_dict from line read from serial port
+        '''
         if data_dict is None:
             data_dict = {}
-        data_dict['Data end'] = False
-        m = re.search(r'Temperature: ([0-9.]+)|Relative Humidity: ([0-9.]+)|CO2: ([0-9.]+)|(Data end)', s)
+        m = re.search(self.serial_regex_parser, s)
         if m:
             # temp
             if m.group(1):
@@ -65,12 +75,13 @@ class SerialReader(Application):
             # CO2
             if m.group(3):
                 data_dict['CO2'] = float(m.group(3))
-            if m.group(4):
-                data_dict['Data end'] = True
         return data_dict
     
     def DisplayDict(self, data_dict):
-        l = ['%s : %.2f %s' % (d, data_dict[d], self.display_items[d]) for d in data_dict.keys() if d in self.display_items.keys()]
+        '''
+        print the items in data_dict that are specified by object's display_items
+        '''
+        l = ['%s : %.2f %s' % (d, data_dict[d], self.units[d]) for d in data_dict.keys() if d in self.display_items]
         s = '\n'.join(l)
         if len(s) > 0:
             s = '--------\n' + s
@@ -79,15 +90,20 @@ class SerialReader(Application):
         return s
     
     def GetFileName(self, prefix):
+        '''
+        get the standard file name using prefix: <prefix>_<time>.csv
+        '''
         now = dt.now()
         time_str = now.strftime(TIME_FMT)
         output_file_name = prefix + '_' + time_str + '.csv'
         return output_file_name
     
     def AllDataGathered(self, data_dict):
-        log_items = self.log_items.keys()
-        gathered_data = [data_dict.keys()] + ['Time']
-        if log_items in gathered_data:
+        '''
+        Return True if data_dict contains all the items specified in object's log_items
+        '''
+        gathered_data = list(data_dict.keys()) + ['Time']
+        if set(self.log_items) <= set(gathered_data):
             return True
         else:
             return False
@@ -96,11 +112,12 @@ class SerialReader(Application):
     def Run(self, com_port=DEF_COM_PORT, baud_rate=DEF_BAUD_RATE, output_file_name=DEF_OUTPUT_FILE):
         
         # open file to write to
-        
         output_file_name = self.GetFileName(output_file_name)
         output_file = open(output_file_name, 'w', newline='')
+        
+        # create writer object and write the header
         writer = csv.writer(output_file)
-        header = ['%s [%s]' % (l, self.log_items[l]) for l in self.log_items.keys()]
+        header = ['%s [%s]' % (l, self.units[l]) if self.units[l] else '%s' % (l) for l in self.log_items]
         writer.writerow(header)
         print('Opened CSV file %s' % output_file_name)
         
@@ -110,18 +127,15 @@ class SerialReader(Application):
         except serial.serialutil.SerialException:
             print('Error: Cannot open serial port %s.' % com_port)
             return
-        
-        # print something
         print('Connected to serial port %s\n' % ser.name)
         
         # loop on reading
         data_dict = {}
-        data_end = False
         while not self.terminated:
             
             # parse data:
             # we gathered all the lines in this set
-            if data_end and self.AllDataGathered(data_dict):
+            if self.AllDataGathered(data_dict):
                 # display
                 print(self.DisplayDict(data_dict))
                 
@@ -131,18 +145,12 @@ class SerialReader(Application):
                 data_dict['Time'] = time_str
                 
                 # write to file
-                print(self.log_items.keys())
-                print(data_dict)
-                row = [data_dict[d] for d in self.log_items.keys()]
+                row = [data_dict[d] for d in self.log_items]
                 writer.writerow(row)
-                
-                # reset the data end flag
-                data_dict = {'Data end' : False}
-            
+                            
             # gather more lines
             line = ser.readline()
             data_dict = self.parse_data(str(line, 'utf-8'), data_dict)
-            data_end = data_dict['Data end']
                      
         
         # cleanup
@@ -221,7 +229,7 @@ if __name__ == '__main__':
         # run to log serial port
         if purpose == 'read_serial':
             serial_reader = SerialReader()
-            serial_reader.Run()
+            serial_reader.Run(*sys.argv[2:])
             exit()
         # run to plot data
         elif purpose == 'plot':
