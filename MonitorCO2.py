@@ -51,9 +51,9 @@ class SerialReader(Application):
     def __init__(self):
         super(SerialReader, self).__init__()
         self.serial_regex_parser = SERIAL_REGEX_PARSER
-        self.display_items = ['Temperature', 'CO2']
-        self.log_items = ['Time', 'Temperature', 'CO2']
-        self.units = {'Time' : None, 'Temperature' : 'deg C', 'CO2' : 'ppm'}
+        self.display_items = ['Temperature', 'CO2', 'Relative Humidity']
+        self.log_items = ['Time', 'Temperature', 'Relative Humidity', 'CO2']
+        self.units = {'Time' : None, 'Temperature' : 'deg C', 'Relative Humidity' : '%%', 'CO2' : 'ppm'}
 
     def parse_data(self, s, data_dict=None):
         '''
